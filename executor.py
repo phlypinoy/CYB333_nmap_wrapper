@@ -23,15 +23,41 @@ class NmapExecutor:
         Args:
             config: NmapConfig instance with scan settings
             output_dir: Directory to store output files
+            
+        Raises:
+            TypeError: If config is not a NmapConfig instance
+            ValueError: If output_dir is invalid
+            PermissionError: If output_dir cannot be created or written to
         """
+        # Validate config parameter
+        if not isinstance(config, NmapConfig):
+            raise TypeError(f"config must be a NmapConfig instance, got {type(config).__name__}")
+        
+        # Validate output_dir parameter
+        if not isinstance(output_dir, str):
+            raise TypeError(f"output_dir must be a string, got {type(output_dir).__name__}")
+        if not output_dir or not output_dir.strip():
+            raise ValueError("output_dir cannot be empty")
+        
+        # Check if path is valid and can be created
+        try:
+            abs_path = os.path.abspath(output_dir)
+            os.makedirs(abs_path, exist_ok=True)
+            # Test write permissions
+            test_file = os.path.join(abs_path, '.write_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except PermissionError as e:
+            raise PermissionError(f"Cannot write to output directory '{output_dir}': {e}")
+        except OSError as e:
+            raise ValueError(f"Invalid output directory '{output_dir}': {e}")
+        
         self.config = config
-        self.output_dir = output_dir
+        self.output_dir = abs_path
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        logger.info(f"Initialized executor with output dir: {output_dir}")
+        logger.info(f"Initialized executor with output dir: {self.output_dir}")
     
     def build_command(self, targets: List[str], ports: Optional[str] = None) -> List[str]:
         """
@@ -43,7 +69,32 @@ class NmapExecutor:
             
         Returns:
             Complete nmap command as list of arguments
+            
+        Raises:
+            TypeError: If parameters are of incorrect type
+            ValueError: If targets is empty or ports format is invalid
         """
+        # Validate targets parameter
+        if not isinstance(targets, list):
+            raise TypeError(f"targets must be a list, got {type(targets).__name__}")
+        if not targets:
+            raise ValueError("targets list cannot be empty")
+        for target in targets:
+            if not isinstance(target, str):
+                raise TypeError(f"All targets must be strings, got {type(target).__name__}")
+            if not target.strip():
+                raise ValueError("Target cannot be an empty string")
+        
+        # Validate ports parameter if provided
+        if ports is not None:
+            if not isinstance(ports, str):
+                raise TypeError(f"ports must be a string, got {type(ports).__name__}")
+            if not ports.strip():
+                raise ValueError("ports cannot be an empty string")
+            # Basic port format validation
+            if not self._validate_port_spec(ports):
+                raise ValueError(f"Invalid port specification: {ports}")
+        
         cmd = ['nmap']
         
         # Add profile/custom options
@@ -66,6 +117,51 @@ class NmapExecutor:
         
         logger.info(f"Built command: {' '.join(cmd)}")
         return cmd
+    
+    def _validate_port_spec(self, ports: str) -> bool:
+        """
+        Validate port specification format.
+        
+        Args:
+            ports: Port specification string
+            
+        Returns:
+            True if format appears valid
+        """
+        # Allow '-' for all ports
+        if ports.strip() == '-':
+            return True
+        
+        # Check for valid characters (numbers, commas, hyphens)
+        import re
+        if not re.match(r'^[0-9,\-\s]+$', ports):
+            return False
+        
+        # Validate individual port numbers and ranges
+        for part in ports.split(','):
+            part = part.strip()
+            if '-' in part:
+                # Port range
+                try:
+                    start, end = part.split('-', 1)
+                    start_port = int(start.strip())
+                    end_port = int(end.strip())
+                    if not (0 < start_port <= 65535 and 0 < end_port <= 65535):
+                        return False
+                    if start_port > end_port:
+                        return False
+                except ValueError:
+                    return False
+            else:
+                # Single port
+                try:
+                    port = int(part)
+                    if not (0 < port <= 65535):
+                        return False
+                except ValueError:
+                    return False
+        
+        return True
     
     def validate_nmap_installed(self) -> bool:
         """
@@ -104,7 +200,21 @@ class NmapExecutor:
             
         Returns:
             Tuple of (return_code, stdout, stderr)
+            
+        Raises:
+            TypeError: If parameters are of incorrect type
+            ValueError: If timeout is invalid
+            RuntimeError: If nmap is not installed
         """
+        # Validate timeout parameter
+        if timeout is not None:
+            if not isinstance(timeout, int):
+                raise TypeError(f"timeout must be an integer, got {type(timeout).__name__}")
+            if timeout <= 0:
+                raise ValueError(f"timeout must be positive, got {timeout}")
+            if timeout > 86400:  # 24 hours max
+                raise ValueError(f"timeout too large (max 86400 seconds): {timeout}")
+        
         # Validate nmap is installed
         if not self.validate_nmap_installed():
             raise RuntimeError("Nmap is not installed or not in PATH")

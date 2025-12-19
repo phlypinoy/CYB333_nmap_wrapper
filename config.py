@@ -119,7 +119,29 @@ class NmapConfig:
         Args:
             profile: Name of predefined profile to use
             custom_options: Custom nmap options (overrides profile)
+            
+        Raises:
+            ValueError: If profile name is invalid or custom_options is malformed
+            TypeError: If parameters are of incorrect type
         """
+        # Validate profile parameter
+        if profile is not None:
+            if not isinstance(profile, str):
+                raise TypeError(f"Profile must be a string, got {type(profile).__name__}")
+            if profile and profile not in self.PROFILES:
+                valid_profiles = ', '.join(self.PROFILES.keys())
+                raise ValueError(f"Invalid profile '{profile}'. Valid profiles: {valid_profiles}")
+        
+        # Validate custom_options parameter
+        if custom_options is not None:
+            if not isinstance(custom_options, list):
+                raise TypeError(f"custom_options must be a list, got {type(custom_options).__name__}")
+            for opt in custom_options:
+                if not isinstance(opt, str):
+                    raise TypeError(f"All custom options must be strings, got {type(opt).__name__}")
+                if not opt.strip():
+                    raise ValueError("Custom options cannot be empty strings")
+        
         self.profile = profile
         self.custom_options = custom_options or []
         self.xml_output = True  # Always enable XML output for parsing
@@ -175,11 +197,26 @@ class NmapConfig:
             
         Returns:
             True if options appear valid
+            
+        Raises:
+            ValueError: If options list is invalid
+            TypeError: If options is not a list or contains non-strings
         """
-        # Basic validation - check for obviously invalid options
+        if not isinstance(options, list):
+            raise TypeError(f"Options must be a list, got {type(options).__name__}")
+        
+        if not options:
+            raise ValueError("Options list cannot be empty")
+        
+        # Validate each option
         for opt in options:
-            if not opt.startswith('-') and not opt.replace('.', '').isdigit():
-                # Allow IP addresses and hostnames, but flag unexpected formats
+            if not isinstance(opt, str):
+                raise TypeError(f"All options must be strings, got {type(opt).__name__}")
+            if not opt.strip():
+                raise ValueError("Options cannot be empty strings")
+            # Basic validation - check for obviously invalid options
+            if not opt.startswith('-') and not opt.replace('.', '').replace('/', '').isdigit():
+                # Allow IP addresses, CIDR, and hostnames, but flag unexpected formats
                 logger.warning(f"Potentially invalid option: {opt}")
         
         return True

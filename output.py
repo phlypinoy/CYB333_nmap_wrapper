@@ -22,14 +22,36 @@ class OutputGenerator:
         
         Args:
             output_dir: Directory to save output files
+            
+        Raises:
+            TypeError: If output_dir is not a string
+            ValueError: If output_dir is invalid
+            PermissionError: If output_dir cannot be created or written to
         """
-        self.output_dir = output_dir
+        # Validate output_dir parameter
+        if not isinstance(output_dir, str):
+            raise TypeError(f"output_dir must be a string, got {type(output_dir).__name__}")
+        if not output_dir or not output_dir.strip():
+            raise ValueError("output_dir cannot be empty")
+        
+        # Check if path is valid and can be created
+        try:
+            abs_path = os.path.abspath(output_dir)
+            os.makedirs(abs_path, exist_ok=True)
+            # Test write permissions
+            test_file = os.path.join(abs_path, '.write_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except PermissionError as e:
+            raise PermissionError(f"Cannot write to output directory '{output_dir}': {e}")
+        except OSError as e:
+            raise ValueError(f"Invalid output directory '{output_dir}': {e}")
+        
+        self.output_dir = abs_path
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        logger.info(f"Initialized output generator with dir: {output_dir}")
+        logger.info(f"Initialized output generator with dir: {self.output_dir}")
     
     def generate_csv(self, flat_data: List[Dict], filename: Optional[str] = None) -> str:
         """
@@ -41,7 +63,26 @@ class OutputGenerator:
             
         Returns:
             Path to generated CSV file
+            
+        Raises:
+            TypeError: If parameters are of incorrect type
+            ValueError: If filename contains invalid characters
         """
+        # Validate flat_data parameter
+        if not isinstance(flat_data, list):
+            raise TypeError(f"flat_data must be a list, got {type(flat_data).__name__}")
+        
+        # Validate filename parameter if provided
+        if filename is not None:
+            if not isinstance(filename, str):
+                raise TypeError(f"filename must be a string, got {type(filename).__name__}")
+            if not filename.strip():
+                raise ValueError("filename cannot be empty")
+            # Check for invalid filename characters
+            import re
+            if re.search(r'[<>:"/\\|?*]', filename):
+                raise ValueError(f"filename contains invalid characters: {filename}")
+        
         if not filename:
             filename = f'nmap_results_{self.timestamp}.csv'
         
@@ -85,7 +126,30 @@ class OutputGenerator:
             
         Returns:
             Path to generated JSON file
+            
+        Raises:
+            TypeError: If parameters are of incorrect type
+            ValueError: If filename contains invalid characters
         """
+        # Validate normalized_data parameter
+        if not isinstance(normalized_data, dict):
+            raise TypeError(f"normalized_data must be a dict, got {type(normalized_data).__name__}")
+        
+        # Validate filename parameter if provided
+        if filename is not None:
+            if not isinstance(filename, str):
+                raise TypeError(f"filename must be a string, got {type(filename).__name__}")
+            if not filename.strip():
+                raise ValueError("filename cannot be empty")
+            # Check for invalid filename characters
+            import re
+            if re.search(r'[<>:"/\\|?*]', filename):
+                raise ValueError(f"filename contains invalid characters: {filename}")
+        
+        # Validate pretty parameter
+        if not isinstance(pretty, bool):
+            raise TypeError(f"pretty must be a bool, got {type(pretty).__name__}")
+        
         if not filename:
             filename = f'nmap_results_{self.timestamp}.json'
         

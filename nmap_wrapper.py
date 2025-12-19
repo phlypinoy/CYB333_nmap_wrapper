@@ -145,11 +145,37 @@ def validate_targets(targets: List[str]) -> List[str]:
         
     Returns:
         List of validated targets
+        
+    Raises:
+        TypeError: If targets is not a list or contains non-strings
+        ValueError: If targets is empty or contains invalid targets
     """
     logger = logging.getLogger(__name__)
+    
+    # Validate parameter type
+    if not isinstance(targets, list):
+        raise TypeError(f"targets must be a list, got {type(targets).__name__}")
+    
+    if not targets:
+        raise ValueError("targets list cannot be empty")
+    
     validated = []
+    invalid_targets = []
     
     for target in targets:
+        # Check if target is a string
+        if not isinstance(target, str):
+            raise TypeError(f"All targets must be strings, got {type(target).__name__}")
+        
+        # Check if target is not empty
+        target = target.strip()
+        if not target:
+            raise ValueError("Target cannot be an empty string")
+        
+        # Check for dangerous characters
+        if any(char in target for char in [';', '&', '|', '`', '$', '(', ')']):
+            raise ValueError(f"Target contains potentially dangerous characters: {target}")
+        
         try:
             # Try to parse as IP address or network
             ipaddress.ip_address(target)
@@ -160,9 +186,18 @@ def validate_targets(targets: List[str]) -> List[str]:
                 ipaddress.ip_network(target, strict=False)
                 validated.append(target)
             except ValueError:
-                # Assume it's a hostname
-                logger.debug(f"Treating '{target}' as hostname")
-                validated.append(target)
+                # Assume it's a hostname - basic hostname validation
+                import re
+                # Valid hostname pattern
+                hostname_pattern = r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$'
+                if re.match(hostname_pattern, target) or target == 'localhost':
+                    logger.debug(f"Treating '{target}' as hostname")
+                    validated.append(target)
+                else:
+                    invalid_targets.append(target)
+    
+    if invalid_targets:
+        raise ValueError(f"Invalid target specification(s): {', '.join(invalid_targets)}")
     
     return validated
 
@@ -317,9 +352,42 @@ Examples:
     if not args.targets:
         parser.error("Target specification (-t/--targets) is required")
     
+    # Validate port specification if provided
+    if args.ports:
+        if not isinstance(args.ports, str):
+            logger.error("Ports must be a string")
+            return 1
+        # Basic port format validation
+        import re
+        if args.ports.strip() != '-' and not re.match(r'^[0-9,\-\s]+$', args.ports):
+            logger.error(f"Invalid port specification format: {args.ports}")
+            print(f"Error: Invalid port specification '{args.ports}'. Use formats like: 80,443 or 1-1000 or -")
+            return 1
+    
+    # Validate timeout if provided
+    if args.timeout is not None:
+        if args.timeout <= 0:
+            logger.error(f"Invalid timeout value: {args.timeout}")
+            print(f"Error: Timeout must be positive, got {args.timeout}")
+            return 1
+        if args.timeout > 86400:
+            logger.error(f"Timeout too large: {args.timeout}")
+            print(f"Error: Timeout too large (max 86400 seconds/24 hours): {args.timeout}")
+            return 1
+    
+    # Validate output directory
+    if args.output_dir:
+        if not isinstance(args.output_dir, str) or not args.output_dir.strip():
+            logger.error("Invalid output directory")
+            print("Error: Output directory cannot be empty")
+            return 1
+    
     try:
+        # Validate target specifications
+        validated_targets = validate_targets(args.targets)
+        
         # Check for public targets and get confirmation
-        targets, public_targets = check_public_targets(args.targets)
+        targets, public_targets = check_public_targets(validated_targets)
         logger.info(f"Validated {len(targets)} target(s)")
         
         # Warn and confirm if any targets are public
@@ -357,13 +425,23 @@ Examples:
                 print()
         
         # Create configuration
-        if args.custom_options:
-            custom_opts = args.custom_options.split()
-            config = NmapConfig(custom_options=custom_opts)
-            logger.info("Using custom nmap options")
-        else:
-            config = NmapConfig(profile=args.profile)
-            logger.info(f"Using profile: {args.profile}")
+        try:
+            if args.custom_options:
+                # Validate and split custom options
+                if not isinstance(args.custom_options, str):
+                    raise TypeError("Custom options must be a string")
+                custom_opts = args.custom_options.split()
+                if not custom_opts:
+                    raise ValueError("Custom options cannot be empty")
+                config = NmapConfig(custom_options=custom_opts)
+                logger.info("Using custom nmap options")
+            else:
+                config = NmapConfig(profile=args.profile)
+                logger.info(f"Using profile: {args.profile}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Configuration error: {e}")
+            print(f"\nError: {e}")
+            return 1
         
         # Check if profile requires confirmation (aggressive scans)
         if config.requires_confirmation() and not args.yes:
@@ -395,22 +473,30 @@ Examples:
         elif config.requires_confirmation() and args.yes:
             logger.info(f"Auto-confirmed aggressive profile with --yes flag: {args.profile}")
         
-        # Create output directory
-        os.makedirs(args.output_dir, exist_ok=True)
-        
-        # Execute scan
-        logger.info("Initializing scan execution...")
-        executor = NmapExecutor(config, args.output_dir)
+        # Create output directory and initialize executor
+        try:
+            os.makedirs(args.output_dir, exist_ok=True)
+            logger.info("Initializing scan execution...")
+            executor = NmapExecutor(config, args.output_dir)
+        except (PermissionError, OSError, ValueError, TypeError) as e:
+            logger.error(f"Failed to initialize executor: {e}")
+            print(f"\nError: Cannot initialize scan executor - {e}")
+            return 1
         
         print(f"\nStarting nmap scan of {len(targets)} target(s)...")
         print(f"Profile: {args.profile}")
         print(f"Output directory: {args.output_dir}")
         
-        returncode, stdout, stderr = executor.execute(
-            targets=targets,
-            ports=args.ports,
-            timeout=args.timeout
-        )
+        try:
+            returncode, stdout, stderr = executor.execute(
+                targets=targets,
+                ports=args.ports,
+                timeout=args.timeout
+            )
+        except (ValueError, TypeError, RuntimeError) as e:
+            logger.error(f"Execution error: {e}")
+            print(f"\nError: Failed to execute scan - {e}")
+            return 1
         
         if returncode != 0:
             logger.warning(f"Nmap returned non-zero exit code: {returncode}")
@@ -429,9 +515,14 @@ Examples:
         
         # Parse results
         print("\nParsing scan results...")
-        parser_obj = NmapParser(xml_file)
-        normalized_data = parser_obj.get_normalized_data()
-        flat_data = parser_obj.get_flat_data()
+        try:
+            parser_obj = NmapParser(xml_file)
+            normalized_data = parser_obj.get_normalized_data()
+            flat_data = parser_obj.get_flat_data()
+        except (FileNotFoundError, PermissionError, ValueError, TypeError) as e:
+            logger.error(f"Parser error: {e}")
+            print(f"\nError: Failed to parse results - {e}")
+            return 1
         
         hosts_found = len(normalized_data.get('hosts', []))
         ports_found = sum(len(h.get('ports', [])) for h in normalized_data.get('hosts', []))
@@ -439,23 +530,34 @@ Examples:
         
         # Generate output files
         print("\nGenerating output files...")
-        output_gen = OutputGenerator(args.output_dir)
+        try:
+            output_gen = OutputGenerator(args.output_dir)
+        except (PermissionError, ValueError, TypeError) as e:
+            logger.error(f"Output generator error: {e}")
+            print(f"\nError: Failed to initialize output generator - {e}")
+            return 1
+        
         generated_files = []
         
-        if not args.no_csv:
-            csv_file = output_gen.generate_csv(flat_data)
-            generated_files.append(('CSV', csv_file))
-            print(f"✓ CSV:     {csv_file}")
-        
-        if not args.no_json:
-            json_file = output_gen.generate_json(normalized_data)
-            generated_files.append(('JSON', json_file))
-            print(f"✓ JSON:    {json_file}")
-        
-        if not args.no_summary:
-            summary_file = output_gen.generate_summary_report(normalized_data)
-            generated_files.append(('Summary', summary_file))
-            print(f"✓ Summary: {summary_file}")
+        try:
+            if not args.no_csv:
+                csv_file = output_gen.generate_csv(flat_data)
+                generated_files.append(('CSV', csv_file))
+                print(f"✓ CSV:     {csv_file}")
+            
+            if not args.no_json:
+                json_file = output_gen.generate_json(normalized_data)
+                generated_files.append(('JSON', json_file))
+                print(f"✓ JSON:    {json_file}")
+            
+            if not args.no_summary:
+                summary_file = output_gen.generate_summary_report(normalized_data)
+                generated_files.append(('Summary', summary_file))
+                print(f"✓ Summary: {summary_file}")
+        except (TypeError, ValueError, IOError) as e:
+            logger.error(f"Output generation error: {e}")
+            print(f"\nError: Failed to generate output - {e}")
+            return 1
         
         # Display summary
         print("\n" + "="*70)

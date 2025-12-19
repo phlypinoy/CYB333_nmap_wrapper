@@ -5,6 +5,7 @@ Extracts and normalizes scan data for CSV and JSON export.
 
 import xml.etree.ElementTree as ET
 import logging
+import os
 from typing import List, Dict, Optional
 from datetime import datetime
 
@@ -20,7 +21,31 @@ class NmapParser:
         
         Args:
             xml_file: Path to nmap XML output file
+            
+        Raises:
+            TypeError: If xml_file is not a string
+            ValueError: If xml_file is empty or invalid
+            FileNotFoundError: If xml_file does not exist
+            PermissionError: If xml_file cannot be read
         """
+        # Validate xml_file parameter
+        if not isinstance(xml_file, str):
+            raise TypeError(f"xml_file must be a string, got {type(xml_file).__name__}")
+        if not xml_file or not xml_file.strip():
+            raise ValueError("xml_file cannot be empty")
+        
+        # Check file exists and is readable
+        if not os.path.exists(xml_file):
+            raise FileNotFoundError(f"XML file not found: {xml_file}")
+        if not os.path.isfile(xml_file):
+            raise ValueError(f"Path is not a file: {xml_file}")
+        if not os.access(xml_file, os.R_OK):
+            raise PermissionError(f"Cannot read XML file: {xml_file}")
+        
+        # Check file is not empty
+        if os.path.getsize(xml_file) == 0:
+            raise ValueError(f"XML file is empty: {xml_file}")
+        
         self.xml_file = xml_file
         self.tree = None
         self.root = None
@@ -35,10 +60,19 @@ class NmapParser:
         
         Returns:
             Dictionary with parsed scan results
+            
+        Raises:
+            ET.ParseError: If XML is malformed
+            ValueError: If XML structure is invalid
+            Exception: For other parsing errors
         """
         try:
             self.tree = ET.parse(self.xml_file)
             self.root = self.tree.getroot()
+            
+            # Validate root element is nmaprun
+            if self.root.tag != 'nmaprun':
+                raise ValueError(f"Invalid XML root element: expected 'nmaprun', got '{self.root.tag}'")
             
             # Extract scan metadata
             self._parse_scan_info()
@@ -54,10 +88,13 @@ class NmapParser:
             }
             
         except ET.ParseError as e:
-            logger.error(f"XML parsing error: {e}")
+            logger.error(f"XML parsing error in {self.xml_file}: {e}")
+            raise ValueError(f"Malformed XML file: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid XML structure: {e}")
             raise
         except Exception as e:
-            logger.error(f"Error parsing XML: {e}")
+            logger.error(f"Error parsing XML {self.xml_file}: {e}")
             raise
     
     def _parse_scan_info(self):
