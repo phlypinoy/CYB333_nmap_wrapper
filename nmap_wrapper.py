@@ -168,15 +168,27 @@ def validate_targets(targets: List[str]) -> List[str]:
 
 
 def list_profiles():
-    """Display all available scan profiles."""
+    """Display all available scan profiles organized by category."""
     print("\nAvailable Scan Profiles:")
     print("=" * 70)
     
-    profiles = NmapConfig.list_profiles()
-    for profile in profiles:
-        print(f"\n{profile['name'].upper()}")
-        print(f"  Description: {profile['description']}")
-        print(f"  Options:     {' '.join(profile['options'])}")
+    categories = NmapConfig.list_profiles_by_category()
+    
+    category_names = {
+        'passive': 'PASSIVE SCANS (Safe, non-intrusive)',
+        'standard': 'STANDARD SCANS (Balanced detection)',
+        'aggressive': 'AGGRESSIVE SCANS (Intrusive, requires confirmation)'
+    }
+    
+    for category in ['passive', 'standard', 'aggressive']:
+        print(f"\n{category_names[category]}")
+        print("-" * 70)
+        
+        for profile in categories[category]:
+            confirm_flag = " ⚠️  [REQUIRES CONFIRMATION]" if profile['requires_confirmation'] else ""
+            print(f"\n  {profile['name']}{confirm_flag}")
+            print(f"    Description: {profile['description']}")
+            print(f"    Options:     {' '.join(profile['options'])}")
     
     print("\n" + "=" * 70)
 
@@ -215,8 +227,8 @@ Examples:
     # Profile selection
     parser.add_argument(
         '-p', '--profile',
-        choices=['quick', 'standard', 'intense', 'stealth', 'udp', 
-                'comprehensive', 'ping', 'version'],
+        choices=['ping', 'quick', 'standard', 'version', 'udp', 
+                'stealth', 'intense', 'vuln', 'comprehensive', 'firewall-bypass'],
         default='standard',
         help='Scan profile to use (default: standard)'
     )
@@ -352,6 +364,36 @@ Examples:
         else:
             config = NmapConfig(profile=args.profile)
             logger.info(f"Using profile: {args.profile}")
+        
+        # Check if profile requires confirmation (aggressive scans)
+        if config.requires_confirmation() and not args.yes:
+            profile_info = config.get_profile_info()
+            print("\n" + "="*70)
+            print("⚠️  AGGRESSIVE SCAN PROFILE DETECTED")
+            print("="*70)
+            print(f"\nProfile: {profile_info['name']}")
+            print(f"Category: {profile_info['category'].upper()}")
+            print(f"Description: {profile_info['description']}")
+            print(f"\nThis scan profile is INTRUSIVE and may:")
+            print("  • Generate significant network traffic")
+            print("  • Trigger intrusion detection systems (IDS/IPS)")
+            print("  • Be logged and detected by target systems")
+            print("  • Require root/administrator privileges")
+            print("  • Be considered hostile by network defenders")
+            print("\n" + "="*70)
+            print("IMPORTANT: Only use aggressive scans with explicit authorization!")
+            print("="*70)
+            
+            response = input("\nDo you have authorization to run this aggressive scan? (yes/no): ")
+            if response.lower() not in ['yes', 'y']:
+                print("\nScan cancelled by user.")
+                logger.info(f"User declined aggressive scan profile: {args.profile}")
+                return 0
+            
+            logger.info(f"User confirmed aggressive scan profile: {args.profile}")
+            print()
+        elif config.requires_confirmation() and args.yes:
+            logger.info(f"Auto-confirmed aggressive profile with --yes flag: {args.profile}")
         
         # Create output directory
         os.makedirs(args.output_dir, exist_ok=True)

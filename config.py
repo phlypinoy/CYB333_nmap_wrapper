@@ -12,63 +12,103 @@ logger = logging.getLogger(__name__)
 class ScanProfile:
     """Represents a scan profile with specific nmap options."""
     
-    def __init__(self, name: str, description: str, options: List[str]):
+    def __init__(self, name: str, description: str, options: List[str], 
+                 category: str = 'standard', requires_confirmation: bool = False):
         self.name = name
         self.description = description
         self.options = options
+        self.category = category  # 'passive', 'standard', 'aggressive'
+        self.requires_confirmation = requires_confirmation
     
     def to_dict(self) -> dict:
         return {
             'name': self.name,
             'description': self.description,
-            'options': self.options
+            'options': self.options,
+            'category': self.category,
+            'requires_confirmation': self.requires_confirmation
         }
 
 
 class NmapConfig:
     """Configuration manager for nmap scans."""
     
-    # Predefined scan profiles
+    # Predefined scan profiles organized by category
     PROFILES = {
+        # PASSIVE SCANS - Non-intrusive, safe for production
+        'ping': ScanProfile(
+            name='ping',
+            description='Ping scan only (host discovery, no port scan)',
+            options=['-sn'],
+            category='passive',
+            requires_confirmation=False
+        ),
         'quick': ScanProfile(
             name='quick',
             description='Quick scan of most common ports',
-            options=['-T4', '-F']
+            options=['-T4', '-F'],
+            category='passive',
+            requires_confirmation=False
         ),
+        
+        # STANDARD SCANS - Balanced approach, some detection
         'standard': ScanProfile(
             name='standard',
-            description='Standard scan with version detection',
-            options=['-T4', '-A', '-v']
-        ),
-        'intense': ScanProfile(
-            name='intense',
-            description='Comprehensive scan with OS detection',
-            options=['-T4', '-A', '-v', '-Pn', '--script', 'default']
-        ),
-        'stealth': ScanProfile(
-            name='stealth',
-            description='Stealth SYN scan',
-            options=['-sS', '-T2', '-f']
-        ),
-        'udp': ScanProfile(
-            name='udp',
-            description='UDP port scan',
-            options=['-sU', '-T4', '--top-ports', '100']
-        ),
-        'comprehensive': ScanProfile(
-            name='comprehensive',
-            description='Full comprehensive scan (slow)',
-            options=['-T4', '-A', '-v', '-p-', '-Pn', '--script', 'default,discovery']
-        ),
-        'ping': ScanProfile(
-            name='ping',
-            description='Ping scan only (no port scan)',
-            options=['-sn']
+            description='Standard TCP connect scan with version detection',
+            options=['-sT', '-sV', '-T3'],
+            category='standard',
+            requires_confirmation=False
         ),
         'version': ScanProfile(
             name='version',
-            description='Service version detection',
-            options=['-sV', '-T4', '--version-intensity', '5']
+            description='Service version detection on common ports',
+            options=['-sV', '-T4', '--version-intensity', '5'],
+            category='standard',
+            requires_confirmation=False
+        ),
+        'udp': ScanProfile(
+            name='udp',
+            description='UDP port scan (top 100 ports)',
+            options=['-sU', '-T4', '--top-ports', '100'],
+            category='standard',
+            requires_confirmation=False
+        ),
+        
+        # AGGRESSIVE SCANS - Intrusive, detectable, requires confirmation
+        'stealth': ScanProfile(
+            name='stealth',
+            description='Stealth SYN scan (requires root, detectable)',
+            options=['-sS', '-T2', '-f'],
+            category='aggressive',
+            requires_confirmation=True
+        ),
+        'intense': ScanProfile(
+            name='intense',
+            description='Aggressive scan with OS detection and scripts',
+            options=['-sS', '-sV', '-O', '-T4', '--script', 'default'],
+            category='aggressive',
+            requires_confirmation=True
+        ),
+        'vuln': ScanProfile(
+            name='vuln',
+            description='Vulnerability detection scan (very intrusive)',
+            options=['-sS', '-sV', '--script', 'vuln', '-T4'],
+            category='aggressive',
+            requires_confirmation=True
+        ),
+        'comprehensive': ScanProfile(
+            name='comprehensive',
+            description='Full aggressive scan - all ports, OS, scripts',
+            options=['-sS', '-sV', '-O', '-p-', '--script', 'default,discovery', '-T4'],
+            category='aggressive',
+            requires_confirmation=True
+        ),
+        'firewall-bypass': ScanProfile(
+            name='firewall-bypass',
+            description='Attempts to bypass firewalls (highly detectable)',
+            options=['-sS', '-f', '-D', 'RND:10', '--source-port', '53', '-T2'],
+            category='aggressive',
+            requires_confirmation=True
         )
     }
     
@@ -111,6 +151,20 @@ class NmapConfig:
     def list_profiles(cls) -> List[Dict]:
         """List all available profiles."""
         return [profile.to_dict() for profile in cls.PROFILES.values()]
+    
+    @classmethod
+    def list_profiles_by_category(cls) -> Dict[str, List[Dict]]:
+        """List profiles organized by category."""
+        categories = {'passive': [], 'standard': [], 'aggressive': []}
+        for profile in cls.PROFILES.values():
+            categories[profile.category].append(profile.to_dict())
+        return categories
+    
+    def requires_confirmation(self) -> bool:
+        """Check if the current profile requires user confirmation."""
+        if self.profile and self.profile in self.PROFILES:
+            return self.PROFILES[self.profile].requires_confirmation
+        return False
     
     def validate_options(self, options: List[str]) -> bool:
         """
