@@ -9,7 +9,8 @@ import argparse
 import logging
 import sys
 import os
-from typing import List, Optional
+import socket
+from typing import List, Optional, Tuple
 import ipaddress
 
 from config import NmapConfig
@@ -50,6 +51,89 @@ def setup_logging(verbose: bool = False, log_file: Optional[str] = None):
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
+
+
+def is_public_ip(ip_str: str) -> bool:
+    """
+    Check if an IP address is public (not private, not localhost).
+    
+    Args:
+        ip_str: IP address string
+        
+    Returns:
+        True if IP is public
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        # Check if it's a global/public IP (not private, not loopback, not link-local)
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local or 
+                   ip.is_multicast or ip.is_reserved)
+    except ValueError:
+        return False
+
+
+def resolve_hostname(hostname: str) -> Optional[str]:
+    """
+    Resolve hostname to IP address.
+    
+    Args:
+        hostname: Hostname to resolve
+        
+    Returns:
+        IP address or None if resolution fails
+    """
+    try:
+        return socket.gethostbyname(hostname)
+    except socket.gaierror:
+        return None
+
+
+def check_public_targets(targets: List[str]) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """
+    Check if any targets resolve to public IPs.
+    
+    Args:
+        targets: List of target specifications
+        
+    Returns:
+        Tuple of (validated_targets, public_targets_info)
+        where public_targets_info is list of (target, resolved_ip) tuples
+    """
+    logger = logging.getLogger(__name__)
+    validated = []
+    public_targets = []
+    
+    for target in targets:
+        is_network = False
+        resolved_ip = None
+        
+        try:
+            # Try to parse as IP address
+            ip = ipaddress.ip_address(target)
+            validated.append(target)
+            if is_public_ip(target):
+                public_targets.append((target, target))
+        except ValueError:
+            try:
+                # Try as CIDR network
+                network = ipaddress.ip_network(target, strict=False)
+                validated.append(target)
+                is_network = True
+                
+                # Check if network contains public IPs
+                # For simplicity, check the network address itself
+                if is_public_ip(str(network.network_address)):
+                    public_targets.append((target, str(network.network_address)))
+            except ValueError:
+                # It's a hostname - try to resolve it
+                logger.debug(f"Resolving hostname '{target}'")
+                resolved_ip = resolve_hostname(target)
+                validated.append(target)
+                
+                if resolved_ip and is_public_ip(resolved_ip):
+                    public_targets.append((target, resolved_ip))
+    
+    return validated, public_targets
 
 
 def validate_targets(targets: List[str]) -> List[str]:
@@ -181,6 +265,12 @@ Examples:
         help='Maximum scan execution time in seconds'
     )
     
+    parser.add_argument(
+        '--yes',
+        action='store_true',
+        help='Auto-confirm public IP scanning (skip confirmation prompt)'
+    )
+    
     # Information
     parser.add_argument(
         '--list-profiles',
@@ -216,9 +306,43 @@ Examples:
         parser.error("Target specification (-t/--targets) is required")
     
     try:
-        # Validate targets
-        targets = validate_targets(args.targets)
+        # Check for public targets and get confirmation
+        targets, public_targets = check_public_targets(args.targets)
         logger.info(f"Validated {len(targets)} target(s)")
+        
+        # Warn and confirm if any targets are public
+        if public_targets:
+            print("\n" + "="*70)
+            print("⚠️  WARNING: Public IP Address(es) Detected")
+            print("="*70)
+            print("\nThe following target(s) resolve to PUBLIC IP addresses:")
+            print("(Not in RFC1918 private ranges or localhost)\n")
+            
+            for target, resolved_ip in public_targets:
+                if target == resolved_ip:
+                    print(f"  • {target}")
+                else:
+                    print(f"  • {target} → {resolved_ip}")
+            
+            print("\n" + "="*70)
+            print("IMPORTANT: Ensure you have explicit authorization to scan these targets.")
+            print("Unauthorized scanning may be illegal and unethical.")
+            print("="*70)
+            
+            # Skip prompt if --yes flag is used
+            if args.yes:
+                print("\n--yes flag detected, proceeding with scan...")
+                logger.info("Auto-confirmed public targets with --yes flag")
+                print()
+            else:
+                response = input("\nDo you have authorization to scan these public targets? (yes/no): ")
+                if response.lower() not in ['yes', 'y']:
+                    print("\nScan cancelled by user.")
+                    logger.info("User declined to scan public targets")
+                    return 0
+                
+                logger.info("User confirmed authorization for public targets")
+                print()
         
         # Create configuration
         if args.custom_options:
