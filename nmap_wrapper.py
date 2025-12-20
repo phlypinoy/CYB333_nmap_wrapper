@@ -204,8 +204,10 @@ def validate_targets(targets: List[str]) -> List[str]:
 
 def list_profiles():
     """Display all available scan profiles organized by category."""
+    import textwrap
+    
     print("\nAvailable Scan Profiles:")
-    print("=" * 70)
+    print("=" * 80)
     
     categories = NmapConfig.list_profiles_by_category()
     
@@ -217,15 +219,24 @@ def list_profiles():
     
     for category in ['passive', 'standard', 'aggressive']:
         print(f"\n{category_names[category]}")
-        print("-" * 70)
+        print("-" * 80)
         
         for profile in categories[category]:
             confirm_flag = " ⚠️  [REQUIRES CONFIRMATION]" if profile['requires_confirmation'] else ""
             print(f"\n  {profile['name']}{confirm_flag}")
-            print(f"    Description: {profile['description']}")
-            print(f"    Options:     {' '.join(profile['options'])}")
+            
+            # Wrap description text to 76 characters (accounting for 4-space indent)
+            wrapped_description = textwrap.fill(
+                profile['description'],
+                width=76,
+                initial_indent='    ',
+                subsequent_indent='    '
+            )
+            print(wrapped_description)
+            
+            print(f"\n    Options: {' '.join(profile['options'])}")
     
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 80)
 
 
 def main():

@@ -38,14 +38,14 @@ class NmapConfig:
         # PASSIVE SCANS - Non-intrusive, safe for production
         'ping': ScanProfile(
             name='ping',
-            description='Ping scan only (host discovery, no port scan)',
+            description='Host discovery only using ICMP echo, TCP SYN/ACK, and ICMP timestamp requests. No port scanning performed. Safe for production networks. Useful for quickly identifying active hosts on a network.',
             options=['-sn'],
             category='passive',
             requires_confirmation=False
         ),
         'quick': ScanProfile(
             name='quick',
-            description='Quick scan of most common ports',
+            description='Fast scan of the 100 most common TCP ports using aggressive timing (-T4). Completes in seconds to minutes. Ideal for quick reconnaissance and initial network mapping. May miss less common services.',
             options=['-T4', '-F'],
             category='passive',
             requires_confirmation=False
@@ -54,21 +54,21 @@ class NmapConfig:
         # STANDARD SCANS - Balanced approach, some detection
         'standard': ScanProfile(
             name='standard',
-            description='Standard TCP connect scan with version detection',
+            description='Standard TCP connect() scan on default 1000 ports with service version detection. Uses normal timing (-T3). No root required. Attempts to identify service names and versions. Moderately stealthy and reliable for general purpose scanning.',
             options=['-sT', '-sV', '-T3'],
             category='standard',
             requires_confirmation=False
         ),
         'version': ScanProfile(
             name='version',
-            description='Service version detection on common ports',
+            description='Intensive service and version detection scan with medium-high intensity (5/9). Probes open ports to determine service protocol, application name, version number, and OS details. Faster timing (-T4). Useful for vulnerability assessment and inventory management.',
             options=['-sV', '-T4', '--version-intensity', '5'],
             category='standard',
             requires_confirmation=False
         ),
         'udp': ScanProfile(
             name='udp',
-            description='UDP port scan (top 100 ports)',
+            description='UDP port scan targeting the top 100 most common UDP services (DNS, SNMP, DHCP, etc.). Slower than TCP scans due to UDP protocol limitations. May require root/admin privileges. Important for discovering services not visible via TCP scanning.',
             options=['-sU', '-T4', '--top-ports', '100'],
             category='standard',
             requires_confirmation=False
@@ -77,35 +77,35 @@ class NmapConfig:
         # AGGRESSIVE SCANS - Intrusive, detectable, requires confirmation
         'stealth': ScanProfile(
             name='stealth',
-            description='Stealth SYN scan (requires root, detectable)',
+            description='TCP SYN "half-open" scan with packet fragmentation (-f) and slow timing (-T2) to evade basic IDS/IPS. Requires root/admin privileges. Does not complete TCP handshake. Fragments packets into 8-byte chunks. Still detectable by modern security systems but harder to attribute.',
             options=['-sS', '-T2', '-f'],
             category='aggressive',
             requires_confirmation=True
         ),
         'intense': ScanProfile(
             name='intense',
-            description='Aggressive scan with OS detection and scripts',
+            description='Comprehensive aggressive scan combining SYN scanning, service version detection, OS fingerprinting, and NSE default scripts. Attempts to identify operating system, version, device type, and uptime. Runs ~40 safe NSE scripts for additional enumeration. Highly visible to security monitoring. Requires root privileges.',
             options=['-sS', '-sV', '-O', '-T4', '--script', 'default'],
             category='aggressive',
             requires_confirmation=True
         ),
         'vuln': ScanProfile(
             name='vuln',
-            description='Vulnerability detection scan (very intrusive)',
+            description='Active vulnerability scanning using NSE vuln scripts. Attempts to identify known CVEs and security weaknesses including SQL injection, XSS, outdated software, weak credentials, and misconfigurations. Very intrusive - sends exploit probes and may crash unstable services. Only use on authorized test systems.',
             options=['-sS', '-sV', '--script', 'vuln', '-T4'],
             category='aggressive',
             requires_confirmation=True
         ),
         'comprehensive': ScanProfile(
             name='comprehensive',
-            description='Full aggressive scan - all ports, OS, scripts',
+            description='Full-spectrum scan of ALL 65,535 TCP ports (-p-) with OS detection, service versioning, and default+discovery NSE scripts. Extremely thorough but very time-consuming (hours to days). Generates significant network traffic. Discovers hidden services on non-standard ports. Maximum visibility to network security. Requires root privileges.',
             options=['-sS', '-sV', '-O', '-p-', '--script', 'default,discovery', '-T4'],
             category='aggressive',
             requires_confirmation=True
         ),
         'firewall-bypass': ScanProfile(
             name='firewall-bypass',
-            description='Attempts to bypass firewalls (highly detectable)',
+            description='Evasion-focused scan using packet fragmentation (-f), 10 random decoy hosts (-D RND:10), source port spoofing to port 53/DNS (--source-port 53), and slow timing (-T2). Attempts to evade stateful firewalls and IDS by mimicking DNS traffic and obscuring scan source. Highly detectable by modern security systems. Requires root privileges.',
             options=['-sS', '-f', '-D', 'RND:10', '--source-port', '53', '-T2'],
             category='aggressive',
             requires_confirmation=True
